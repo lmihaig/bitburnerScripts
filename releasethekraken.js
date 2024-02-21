@@ -10,7 +10,8 @@ export async function main(ns) {
   let numCracks = getNumCracks(ns, cracks);
   ns.tprint(`Number of available cracks: ${numCracks}`);
   const targetList = await readAndSortChaching(ns)
-  const target = targetList[0]["server"]
+  // const target = targetList[0]["server"]
+  const target = ns.args[0]
 
   ns.tprint(`Targeting ${target}`)
 

@@ -1,4 +1,31 @@
 /** @param {NS} ns */
+
+export function findNode(ns, target) {
+  var visited = {}, stack = [[ns.getHostname(), []]];
+  var paths = {};
+
+  while (stack.length) {
+    let [node, path] = stack.pop();
+    if (!visited[node]) {
+      visited[node] = true;
+      path.push(node);
+      if (node === target) {
+        paths[node] = path;
+      }
+      ns.scan(node).forEach(child => {
+        if (!visited[child]) {
+          stack.push([child, [...path]]);
+        }
+      });
+    }
+  }
+
+  if (paths[target]) {
+    return paths[target];
+  }
+  return Object.keys(visited);
+}
+
 export function getNodes(ns) {
   var visited = {}, stack = [ns.getHostname()];
   while (stack.length) {
@@ -50,14 +77,14 @@ export function getNumCracks(ns, cracks) {
 }
 
 export async function readAndSortChaching(ns) {
-    try {
-        const fileContent = await ns.read("chaching.txt");
-        const serverList = JSON.parse(fileContent);
+  try {
+    const fileContent = await ns.read("chaching.txt");
+    const serverList = JSON.parse(fileContent);
 
-        serverList.sort((a, b) => b.efficiency - a.efficiency);
-        return serverList;
-    } catch (error) {
-        ns.tprint("Error reading or parsing chaching.txt: " + error);
-        return [];
-    }
+    serverList.sort((a, b) => b.efficiency - a.efficiency);
+    return serverList;
+  } catch (error) {
+    ns.tprint("Error reading or parsing chaching.txt: " + error);
+    return [];
+  }
 }

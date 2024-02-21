@@ -1,73 +1,79 @@
 /** @param {NS} ns **/
 export async function main(ns) {
-  let maxServers = ns.getPurchasedServerLimit();
-  let maxRAM = ns.getPurchasedServerMaxRam();
-  let money = ns.getPlayer().money;
+  const maxServers = ns.getPurchasedServerLimit();
+  const maxRAM = ns.getPurchasedServerMaxRam();
+  const money = ns.getPlayer().money;
+  const servers = ns.getPurchasedServers();
 
-  let servers = ns.getPurchasedServers();
-  let ramSizes = servers.map(server => ns.getServerMaxRam(server));
-  let curMaxSize = Math.max(...ramSizes);
-
-  let { optimalRAM, curPrice, priceForNextRAMLevel } = findOptimalRAM(ns, money, servers, maxServers, maxRAM);
-
-
-  let confirmation = await ns.prompt(`Current Max RAM Size: ${curMaxSize}
-  Affordable RAM Size for Upgrade/Purchase: ${optimalRAM}
-  Price for affordable step: ${ns.formatNumber(curPrice)}
-  Price for upgrading to the next level of RAM: ${ns.formatNumber(priceForNextRAMLevel)}
-  Do you want to proceed with the upgrade? (yes/no)`);
-  if (confirmation) {
-    var i = 0;
-    servers.forEach(server => ns.upgradePurchasedServer(server, optimalRAM));
-    while (ns.purchaseServer("pserv", optimalRAM) != "" && i < maxServers) {
-      i++;
-    }
-    ns.tprint(`Purchased ${i} servers`);
+  if (servers.length < maxServers) {
+    buyServers(ns, money, servers, maxServers, 8);
   } else {
-    ns.tprint("Upgrade cancelled.");
-  }
+    const { optimalRAM, totalCost, nextRAMLevelCost } = findOptimalRAM(ns, money, servers, maxRAM);
 
-  await ns.sleep(100)
-}
-
-
-function findOptimalRAM(ns, budget, currentServers, maxServers, maxRAM) {
-  let optimalRAM = 0;
-  let curPrice = 0;
-  let priceForNextRAMLevel = 0;
-
-  for (let ram = 8; ram <= maxRAM; ram *= 2) {
-    let totalUpgradeCost = calculateTotalUpgradeCost(ns, currentServers, ram);
-    let totalNewServersCost = calculateTotalNewServersCost(ns, budget, currentServers.length, maxServers, ram);
-
-    if (totalUpgradeCost + totalNewServersCost <= budget) {
-      optimalRAM = ram;
-      curPrice = totalUpgradeCost + totalNewServersCost;
-      if (ram * 2 <= maxRAM) {
-        let nextLevelUpgradeCost = calculateTotalUpgradeCost(ns, currentServers, ram * 2);
-        let nextLevelNewServersCost = calculateTotalNewServersCost(ns, budget, currentServers.length, maxServers, ram * 2);
-        priceForNextRAMLevel = nextLevelUpgradeCost + nextLevelNewServersCost;
+    if (optimalRAM === currentMaxRAM(ns, servers)) {
+      ns.tprint(`Can't afford upgrade. Next upgrade (to ${optimalRAM * 2}GB) will cost: ${ns.formatNumber(nextRAMLevelCost)}`);
+    } else {
+      const confirmation = await ns.prompt(`Optimal RAM: ${optimalRAM}GB,
+       Total Cost: ${ns.formatNumber(totalCost)},
+       Next Level Cost: ${ns.formatNumber(nextRAMLevelCost)}
+       Proceed? (yes/no)`);
+      if (confirmation) {
+        upgradeServers(ns, servers, optimalRAM);
+      } else {
+        ns.tprint("Upgrade cancelled.");
       }
     }
   }
 
-  return { optimalRAM, curPrice, priceForNextRAMLevel };
+  await ns.sleep(100);
 }
 
-function calculateTotalUpgradeCost(ns, servers, ram) {
+function currentMaxRAM(ns, servers) {
+  return Math.max(...servers.map(server => ns.getServerMaxRam(server)));
+}
+
+function buyServers(ns, budget, currentServers, maxServers, ram) {
+  const serverCost = ns.getPurchasedServerCost(ram);
+  let purchasedCount = 0;
+
+  while (budget >= serverCost && currentServers.length + purchasedCount < maxServers) {
+    const serverName = `pserv-${purchasedCount}`;
+    if (ns.purchaseServer(serverName, ram)) {
+      purchasedCount++;
+      budget -= serverCost;
+    }
+  }
+
+  ns.tprint(`Purchased ${purchasedCount} servers with ${ram}GB RAM`);
+}
+
+function findOptimalRAM(ns, budget, servers, maxRAM) {
+  let optimalRAM = 8;
+  let totalCost = 0;
+  let nextRAMLevelCost = 0;
+
+  for (let ram = 8; ram <= maxRAM; ram *= 2) {
+    const upgradeCost = calculateUpgradeCost(ns, servers, ram);
+    if (upgradeCost <= budget) {
+      optimalRAM = ram;
+      totalCost = upgradeCost;
+      nextRAMLevelCost = ram < maxRAM ? calculateUpgradeCost(ns, servers, ram * 2) : 0;
+    } else {
+      break;
+    }
+  }
+
+  return { optimalRAM, totalCost, nextRAMLevelCost };
+}
+
+function upgradeServers(ns, servers, ram) {
+  servers.forEach(server => ns.upgradePurchasedServer(server, ram));
+  ns.tprint(`Upgraded ${servers.length} servers to ${ram}GB RAM`);
+}
+
+function calculateUpgradeCost(ns, servers, ram) {
   return servers.reduce((sum, server) => {
-    let serverRam = ns.getServerMaxRam(server);
+    const serverRam = ns.getServerMaxRam(server);
     return serverRam < ram ? sum + ns.getPurchasedServerUpgradeCost(server, ram) : sum;
   }, 0);
-}
-
-function calculateTotalNewServersCost(ns, budget, currentServerCount, maxServers, ram) {
-  if (currentServerCount >= maxServers) {
-    return 0;
-  }
-  let newServerCost = ns.getPurchasedServerCost(ram);
-  let availableSlots = maxServers - currentServerCount;
-  let maxNewServers = Math.floor((budget - calculateTotalUpgradeCost(ns, servers, ram)) / newServerCost);
-  maxNewServers = Math.min(maxNewServers, availableSlots);
-  return maxNewServers * newServerCost;
 }
